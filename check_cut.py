@@ -14,7 +14,6 @@ import re
 import sys
 from pathlib import Path
 
-# 关键信息关键词：结果/输赢/金额/档位宣布等（可按视频类型扩展）
 KEYWORDS = ["中", "赢", "百", "千", "结果", "二举", "一秀", "状元",
             "榜眼", "探花", "开仓", "放粮", "宣布", "赢了", "中了", "块钱"]
 
@@ -39,7 +38,6 @@ def srt_segments(srt_text: str) -> list:
 
 
 def kept_ranges(plan) -> list:
-    """由删除区间推出保留段。"""
     deletes = sorted((ts2sec(p["start"]), ts2sec(p["end"])) for p in plan["deletes"])
     dur = max(e for _, e in deletes) + 5
     keeps = [(0.0, dur)]
@@ -68,7 +66,6 @@ def main():
     missing = []
     for a, b, text in segs:
         if any(k in text for k in KEYWORDS):
-            # 关键句：其起始时间必须在保留段内，才算"结果信息被保留"
             if not inside(a):
                 missing.append((a, b, text))
 

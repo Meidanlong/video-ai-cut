@@ -4,7 +4,7 @@
 用豆包视频理解 API 直接分析一段本地视频：
 上传(服务端抽帧+转写) -> 输出 内容概述 + 分段时间线 + 剪辑决策点(带时间戳)。
 
-用法: python run_video_understand.py <视频路径> [剪辑规则]
+用法: ./venv/bin/python run_video_understand.py <视频路径> [剪辑规则]
 """
 import os
 import sys

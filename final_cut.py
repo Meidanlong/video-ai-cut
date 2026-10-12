@@ -34,6 +34,7 @@ def get_ffmpeg() -> str:
 
 
 FFMPEG = get_ffmpeg()
+FONTS_DIR = "/System/Library/Fonts:/Library/Fonts:/System/Library/Fonts/Supplemental"
 
 
 def ts_to_sec(ts: str) -> float:
@@ -92,14 +93,12 @@ def main():
     plan = Path(args.plan)
     srt = Path(args.srt)
 
-    # 0) SRT -> ASS(带设计样式)
     from srt_to_ass import parse_srt, build_ass
     ass_tmp = Path(tempfile.mkdtemp()) / "subtitle.ass"
     segs = parse_srt(srt.read_text(encoding="utf-8"))
     ass_tmp.write_text(build_ass(segs, args.fontname, args.fontsize, 170), encoding="utf-8")
     print(f"[字幕] {len(segs)} 句 -> ASS 样式(Fontname={args.fontname}, Size={args.fontsize})")
 
-    # 1) 原视频烧字幕(音频不动)
     subbed = Path(tempfile.mkdtemp()) / "subbed.mp4"
     esc_ass = str(ass_tmp).replace("\\", "\\\\").replace(":", "\\:")
     sub_cmd = [FFMPEG, "-y", "-i", video,
@@ -109,7 +108,6 @@ def main():
     print("[1/2] 烧录字幕...")
     subprocess.run(sub_cmd, check=True, capture_output=True)
 
-    # 2) 裁剪 + 降噪 + BGM 混音
     delete_ranges = load_delete_ranges(plan)
     duration = get_duration(str(subbed))
     keeps = subtract_ranges(duration, delete_ranges)
@@ -139,8 +137,8 @@ def main():
         bgm_chain = (f"aloop=loop=-1:size=2e9,atrim=0:{duration:.3f},"
                      f"volume={args.bgm_volume},afade=t=in:d=1.5,afade=t=out:st={max(0.0, duration-2.5):.3f}:d=2.5")
         parts.append(f"[1:a]{bgm_chain}[bgm]")
-        fc = ("".join([";".join(parts), ";", concat_in,
-              ";[conva][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0[aout]"]))
+        fc = (";".join(parts) + ";" + concat_in +
+              f";[conva][bgm]amix=inputs=2:duration=first:dropout_transition=3:normalize=0[aout]")
         map_v, map_a = "[convv]", "[aout]"
     else:
         fc = ";".join(parts) + ";" + concat_in

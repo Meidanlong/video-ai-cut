@@ -32,12 +32,11 @@ def srt_segments(srt_text: str) -> list:
 
 
 def protect(deletes: list, speech: list, pad: float = 0.2) -> list:
-    """从每个删除区间中挖掉被语音覆盖的部分，只保留无言停顿。"""
     out = []
     for ds, de in deletes:
         cur = [(ds, de)]
         for a, b in speech:
-            a, b = max(a - pad, ds), min(b + pad, de)  # 语音段外扩保护带
+            a, b = max(a - pad, ds), min(b + pad, de)
             nxt = []
             for s, e in cur:
                 if b <= s or a >= e:
