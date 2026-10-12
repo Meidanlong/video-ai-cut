@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-按豆包的剪辑决策点自动裁剪成片。
-读取剪辑决策单(compact_result.json 的 deletes 或 understand_result.json 的 edit_points)，
-删除指定区间，把其余片段用 ffmpeg trim+concat 拼接输出。
+按豆包的剪辑决策点自动裁剪成片（优化版）。
 
-用法: python cut_video.py <原视频路径> [输出路径] [--plan 决策单路径]
+优化点：
+  1. 场景切点吸附：把保留段边界吸附到最近的镜头切点(Scene Cut Detection)，
+     避免切进画面中间，拼接更自然。
+  2. 音频平滑：每段接缝处加短 afade in/out，消除删除段后的爆音。
+  3. 静默检测(可选 --silence)：用 ffmpeg silencedetect 找出静默段并入删除区间。
+
+用法:
+  python cut_video.py <原视频> [输出] [--plan 决策单]
+  python cut_video.py 素材.mp4 成片.mp4 --silence
 """
 import argparse
 import json
@@ -18,7 +24,6 @@ BASE = Path(__file__).resolve().parent
 
 
 def get_ffmpeg() -> str:
-    """定位 ffmpeg：优先环境变量 FFMPEG，否则用 imageio-ffmpeg 预编译二进制。"""
     exe = os.getenv("FFMPEG")
     if exe and Path(exe).exists():
         return exe
@@ -35,24 +40,53 @@ def ts_to_sec(ts: str) -> float:
 
 
 def get_duration(video: str) -> float:
-    """用 ffmpeg -i 输出的 Duration 解析总时长(秒)。"""
     out = subprocess.run([FFMPEG, "-i", video], capture_output=True, text=True)
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", out.stderr)
     if not m:
         raise RuntimeError("无法解析视频时长: " + out.stderr[-300:])
-    h, mm, ss = int(m.group(1)), int(m.group(2)), float(m.group(3))
-    return h * 3600 + mm * 60 + ss
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
 
-def build_keep_segments(duration: float, delete_ranges):
-    """从完整时长中减去删除区间，得到保留片段列表 [(start, end), ...]。"""
+def detect_scene_cuts(video: str, threshold: float = 0.30) -> list:
+    """用 ffmpeg 的 scene 滤镜检测镜头切点，返回切点时间(秒)列表(不含0)。"""
+    cmd = [FFMPEG, "-i", video,
+           "-vf", f"select='gt(scene,{threshold})',showinfo",
+           "-an", "-f", "null", "-"]
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    cuts = [float(t) for t in re.findall(r"pts_time:([\d.]+)", out.stderr)]
+    return sorted(set(round(c, 3) for c in cuts if c > 0.5))
+
+
+def snap(boundary: float, cuts: list, window: float = 1.5) -> float:
+    """把边界吸附到最近切点；若距离超过 window 则不吸附，返回原值。"""
+    best, best_d = boundary, window
+    for c in cuts:
+        d = abs(c - boundary)
+        if d < best_d:
+            best, best_d = c, d
+    return best
+
+
+def detect_silences(video: str, noise_db: float = -30, min_dur: float = 0.6) -> list:
+    """用 silencedetect 找出静默段，返回 [(start, end)]。"""
+    cmd = [FFMPEG, "-i", video,
+           "-af", f"silencedetect=noise={noise_db}dB:d={min_dur}",
+           "-f", "null", "-"]
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    starts = [float(x) for x in re.findall(r"silence_start:\s*([\d.]+)", out.stderr)]
+    ends = [float(x) for x in re.findall(r"silence_end:\s*([\d.]+)", out.stderr)]
+    return [(round(s, 3), round(e, 3)) for s, e in zip(starts, ends) if e - s >= min_dur]
+
+
+def subtract_ranges(duration: float, delete_ranges) -> list:
+    """从完整时长中减去删除区间，得到保留片段列表 [(start, end)]。"""
     keeps = [(0.0, duration)]
     for d_start, d_end in sorted(delete_ranges):
         new_keeps = []
         for s, e in keeps:
-            if d_end <= s or d_start >= e:      # 不相交
+            if d_end <= s or d_start >= e:
                 new_keeps.append((s, e))
-            else:                                # 有重叠 -> 拆成前后两段
+            else:
                 if s < d_start:
                     new_keeps.append((s, d_start))
                 if d_end < e:
@@ -62,22 +96,23 @@ def build_keep_segments(duration: float, delete_ranges):
 
 
 def load_delete_ranges(plan_path: Path):
-    """读取剪辑决策单，兼容两种结构。返回删除区间列表 [(start, end)]。"""
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if "deletes" in plan:
         return [(ts_to_sec(p["start"]), ts_to_sec(p["end"])) for p in plan["deletes"]]
-    return [
-        (ts_to_sec(p["start"]), ts_to_sec(p["end"]))
-        for p in plan["edit_points"] if p["type"] == "删除"
-    ]
+    return [(ts_to_sec(p["start"]), ts_to_sec(p["end"]))
+            for p in plan["edit_points"] if p["type"] == "删除"]
 
 
 def main():
-    ap = argparse.ArgumentParser(description="按剪辑决策单自动裁剪成片")
+    ap = argparse.ArgumentParser(description="按剪辑决策单自动裁剪成片(优化版)")
     ap.add_argument("video", help="原视频路径")
     ap.add_argument("output", nargs="?", help="输出路径")
     ap.add_argument("--plan", default=str(BASE / "out_video_understand" / "compact_result.json"),
                     help="剪辑决策单 JSON 路径")
+    ap.add_argument("--scene-threshold", type=float, default=0.30, help="场景切点检测阈值")
+    ap.add_argument("--snap-window", type=float, default=1.5, help="边界吸附窗口(秒)")
+    ap.add_argument("--silence", action="store_true", help="启用静默段检测并删除")
+    ap.add_argument("--no-fade", action="store_true", help="关闭音频淡入淡出")
     args = ap.parse_args()
 
     video = args.video
@@ -89,18 +124,43 @@ def main():
     delete_ranges = load_delete_ranges(plan_path)
     print(f"使用剪辑决策单: {plan_path}")
 
+    if args.silence:
+        sils = detect_silences(video)
+        if sils:
+            print(f"[静默] 检测到 {len(sils)} 段静默: {sils}")
+            delete_ranges += sils
+
     duration = get_duration(video)
-    keeps = build_keep_segments(duration, delete_ranges)
+    keeps = subtract_ranges(duration, delete_ranges)
     print(f"视频总长 {duration:.1f}s")
     print(f"删除区间: {delete_ranges}")
+
+    if args.snap_window > 0:
+        cuts = detect_scene_cuts(video, args.scene_threshold)
+        print(f"[场景] 检测到 {len(cuts)} 个镜头切点")
+        snapped = []
+        for s, e in keeps:
+            ns, ne = snap(s, cuts, args.snap_window), snap(e, cuts, args.snap_window)
+            if ne - ns > 0.3:
+                snapped.append((ns, ne))
+        keeps = snapped
     print(f"保留片段: {keeps}")
 
+    fade_audio = not args.no_fade
     n = len(keeps)
     parts, filters = [], []
     for i, (s, e) in enumerate(keeps):
-        parts += [f"[0:v]trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]",
-                  f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]"]
-        filters += [f"[v{i}][a{i}]"]
+        dur = e - s
+        parts.append(f"[0:v]trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]")
+        if fade_audio and dur > 0.3:
+            fade_out_st = max(0.0, dur - 0.06)
+            parts.append(
+                f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS,"
+                f"afade=t=in:d=0.05,afade=t=out:st={fade_out_st:.3f}:d=0.05[a{i}]"
+            )
+        else:
+            parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]")
+        filters.append(f"[v{i}][a{i}]")
     fc = ";".join(parts) + ";" + "".join(filters) + f"concat=n={n}:v=1:a=1[outv][outa]"
 
     cmd = [FFMPEG, "-y", "-i", video, "-filter_complex", fc,
@@ -108,7 +168,7 @@ def main():
            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
            "-c:a", "aac", "-b:a", "192k",
            "-movflags", "+faststart", out_path]
-    print("运行:", " ".join(cmd[:12]), "...")
+    print("运行 ffmpeg ...")
     subprocess.run(cmd, check=True)
     print(f"成片已生成: {out_path}")
 
