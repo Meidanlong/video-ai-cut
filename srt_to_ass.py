@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把 SRT 字幕转成带设计样式的 ASS 字幕。
+把 SRT 字幕转成带设计样式的 ASS 字幕，超宽长句自动折行。
 用法: python srt_to_ass.py <input.srt> <output.ass> [--fontsize 80]
 """
 import argparse
@@ -14,7 +14,7 @@ STYLE_TEMPLATE = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
-WrapStyle: 0
+WrapStyle: 3
 ScaledBorderAndShadow: yes
 YCbCr Matrix: TV.709
 
@@ -53,15 +53,33 @@ def parse_srt(text: str):
     return segs
 
 
+def wrap_text(text: str, max_chars: int) -> str:
+    """按显示宽度折行（全角≈1，半角≈0.6），超宽处插入硬换行 \\N。"""
+    lines, cur, w = [], "", 0.0
+    for ch in text:
+        cw = 1.0 if ord(ch) > 0x2E80 or ch in "，。！？；：、""''（）《》" else 0.6
+        if w + cw > max_chars and cur:
+            lines.append(cur)
+            cur, w = "", 0.0
+        cur += ch
+        w += cw
+    if cur:
+        lines.append(cur)
+    return "\\N".join(lines)
+
+
 def build_ass(segs, fontname, fontsize, marginv):
     header = STYLE_TEMPLATE.format(fontname=fontname, fontsize=fontsize, marginv=marginv)
     lines = [header]
     # 每句直接使用转写返回的真实起止时间戳，保证字幕与语音严格对齐；
-    # 过长的句子由 ASS WrapStyle=0 自动换行，不做时间重分配。
+    # 过长的句子按屏幕可用宽度折行（硬换行 \\N），避免超出屏幕宽度。
+    margin_lr = 120
+    max_chars = max(6, int((1080 - margin_lr * 2) / fontsize))  # 全角字数/行
     for seg in segs:
+        wrapped = wrap_text(seg["text"].strip(), max_chars)
         lines.append(
             f"Dialogue: 0,{srt_time_to_ass(seg['start'])},{srt_time_to_ass(seg['end'])},"
-            f"Default,,0,0,0,,{seg['text'].strip()}"
+            f"Default,,0,0,0,,{wrapped}"
         )
     return "\n".join(lines)
 
@@ -78,7 +96,7 @@ def main():
     segs = parse_srt(Path(args.srt).read_text(encoding="utf-8"))
     ass = build_ass(segs, args.fontname, args.fontsize, args.marginv)
     Path(args.out).write_text(ass, encoding="utf-8")
-    print(f"ASS 已生成: {args.out}（{len(segs)} 句）")
+    print(f"ASS 已生成: {args.out}（{len(segs)} 句，超宽自动折行）")
 
 
 if __name__ == "__main__":
