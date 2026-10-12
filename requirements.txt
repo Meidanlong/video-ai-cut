@@ -1,0 +1,7 @@
+# 依赖清单（流程功能所需）
+openai>=1.0
+imageio-ffmpeg>=0.5
+
+# 本地 ASR（骨架管线备选，二选一）
+# openai-whisper
+# faster-whisper  # Python 3.14+ 建议用这个

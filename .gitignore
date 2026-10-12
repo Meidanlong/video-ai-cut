@@ -1,0 +1,26 @@
+# API Key / 环境变量（绝不提交）
+.env
+.env.local
+
+# 视频素材与成片
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.wmv
+*.flv
+*.webm
+*.m4v
+
+# 识别结果 / 中间产物（可能含私人素材内容）
+out_video_understand/
+out/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 系统
+.DS_Store
