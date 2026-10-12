@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把 SRT 字幕转成带设计样式的 ASS 字幕，超宽长句自动折行。
+把 SRT 字幕转成带设计样式的 ASS 字幕，超宽长句自动折行并预留安全边距。
 用法: python srt_to_ass.py <input.srt> <output.ass> [--fontsize 80]
 """
 import argparse
@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 # 根据视频风格(生活记录/暖调/轻松)设计的字幕样式
-# 竖屏 1080x1920，大字号、暖白字、深棕描边、底部居中
+# 竖屏 1080x1920，大字号、暖白字、深棕描边、底部居中、左右安全边距
 STYLE_TEMPLATE = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -20,7 +20,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{fontname},{fontsize},&H00E5F6FF,&H000000FF,&H0014243A,&H96000000,1,0,0,0,100,100,0,0,1,5,2,2,120,120,{marginv},1
+Style: Default,{fontname},{fontsize},&H00E5F6FF,&H000000FF,&H0014243A,&H96000000,1,0,0,0,100,100,0,0,1,5,2,2,{marginlr},{marginlr},{marginv},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -68,12 +68,12 @@ def wrap_text(text: str, max_chars: int) -> str:
     return "\\N".join(lines)
 
 
-def build_ass(segs, fontname, fontsize, marginv):
-    header = STYLE_TEMPLATE.format(fontname=fontname, fontsize=fontsize, marginv=marginv)
+def build_ass(segs, fontname, fontsize, marginv, margin_lr=160):
+    header = STYLE_TEMPLATE.format(fontname=fontname, fontsize=fontsize,
+                                   marginv=marginv, marginlr=margin_lr)
     lines = [header]
     # 每句直接使用转写返回的真实起止时间戳，保证字幕与语音严格对齐；
-    # 过长的句子按屏幕可用宽度折行（硬换行 \\N），避免超出屏幕宽度。
-    margin_lr = 120
+    # 过长的句子按屏幕安全区宽度折行（硬换行 \\N），两侧预留安全边距，避免超宽。
     max_chars = max(6, int((1080 - margin_lr * 2) / fontsize))  # 全角字数/行
     for seg in segs:
         wrapped = wrap_text(seg["text"].strip(), max_chars)
@@ -91,12 +91,13 @@ def main():
     ap.add_argument("--fontname", default="PingFang SC", help="字体名(默认苹方)")
     ap.add_argument("--fontsize", type=int, default=80, help="字号(竖屏1080基准)")
     ap.add_argument("--marginv", type=int, default=170, help="底部边距")
+    ap.add_argument("--marginlr", type=int, default=160, help="左右安全边距")
     args = ap.parse_args()
 
     segs = parse_srt(Path(args.srt).read_text(encoding="utf-8"))
-    ass = build_ass(segs, args.fontname, args.fontsize, args.marginv)
+    ass = build_ass(segs, args.fontname, args.fontsize, args.marginv, args.marginlr)
     Path(args.out).write_text(ass, encoding="utf-8")
-    print(f"ASS 已生成: {args.out}（{len(segs)} 句，超宽自动折行）")
+    print(f"ASS 已生成: {args.out}（{len(segs)} 句，安全边距 {args.marginlr}px）")
 
 
 if __name__ == "__main__":
