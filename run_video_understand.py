@@ -14,7 +14,7 @@ from pathlib import Path
 from openai import OpenAI
 
 API_KEY = os.environ["ARK_API_KEY"]
-MODEL = "doubao-seed-2-1-pro-260628"          # 支持视频理解的模型
+MODEL = "doubao-seed-2-1-pro-260628"
 BASE = "https://ark.cn-beijing.volces.com/api/v3"
 
 video = sys.argv[1]
@@ -22,14 +22,10 @@ rule = sys.argv[2] if len(sys.argv) > 2 else "识别内容并给出剪辑建议"
 
 client = OpenAI(api_key=API_KEY, base_url=BASE)
 
-# 1) 上传视频（fps 0.3 即每约3秒抽一帧，控制 token 成本）
 print("[1/3] 上传视频...")
 with open(video, "rb") as f:
-    file = client.files.create(
-        file=f,
-        purpose="user_data",
-        extra_body={"preprocess_configs": {"video": {"fps": 0.3}}},
-    )
+    file = client.files.create(file=f, purpose="user_data",
+                               extra_body={"preprocess_configs": {"video": {"fps": 0.3}}})
 print(f"   file_id={file.id} status={file.status}")
 
 while True:
@@ -42,7 +38,6 @@ if file.status != "active":
     print(f"文件处理失败: {file.status}")
     sys.exit(1)
 
-# 2) 调用视频理解
 print("[2/3] 豆包理解视频内容...")
 prompt = (
     "请完整理解这段视频。输出纯 JSON（不要多余文字），格式：\n"
@@ -57,20 +52,15 @@ prompt = (
 )
 resp = client.responses.create(
     model=MODEL,
-    input=[{
-        "role": "user",
-        "content": [
-            {"type": "input_video", "file_id": file.id},
-            {"type": "input_text", "text": prompt},
-        ],
-    }],
+    input=[{"role": "user", "content": [
+        {"type": "input_video", "file_id": file.id},
+        {"type": "input_text", "text": prompt},
+    ]}],
 )
-
 text = resp.output_text if hasattr(resp, "output_text") else str(resp)
 print("[3/3] 分析结果：")
 print(text)
 
-# 3) 落盘
 out_dir = Path("out_video_understand")
 out_dir.mkdir(exist_ok=True)
 (out_dir / "understand_result.json").write_text(text, encoding="utf-8")

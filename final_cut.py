@@ -10,9 +10,6 @@
 
 用法:
   python final_cut.py <原视频> [输出] [--plan 决策单] [--srt 字幕] [--bgm 音乐]
-  示例:
-  python final_cut.py 素材.mp4 成片.mp4
-  python final_cut.py 素材.mp4 成片.mp4 --no-bgm --no-noise
 """
 import argparse
 import json
@@ -34,7 +31,6 @@ def get_ffmpeg() -> str:
 
 
 FFMPEG = get_ffmpeg()
-FONTS_DIR = "/System/Library/Fonts:/Library/Fonts:/System/Library/Fonts/Supplemental"
 
 
 def ts_to_sec(ts: str) -> float:
@@ -130,10 +126,11 @@ def main():
     concat_in = "".join(filters) + f"concat=n={n}:v=1:a=1[convv][conva]"
 
     inputs = [str(subbed)]
-    if not args.no_bgm and Path(args.bgm).exists():
+    has_bgm = (not args.no_bgm) and Path(args.bgm).exists()
+    if has_bgm:
         inputs.append(args.bgm)
 
-    if not args.no_bgm and Path(args.bgm).exists():
+    if has_bgm:
         bgm_chain = (f"aloop=loop=-1:size=2e9,atrim=0:{duration:.3f},"
                      f"volume={args.bgm_volume},afade=t=in:d=1.5,afade=t=out:st={max(0.0, duration-2.5):.3f}:d=2.5")
         parts.append(f"[1:a]{bgm_chain}[bgm]")

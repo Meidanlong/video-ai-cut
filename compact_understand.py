@@ -34,13 +34,10 @@ prompt = (
 )
 resp = client.responses.create(
     model=MODEL,
-    input=[{
-        "role": "user",
-        "content": [
-            {"type": "input_video", "file_id": file_id},
-            {"type": "input_text", "text": prompt},
-        ],
-    }],
+    input=[{"role": "user", "content": [
+        {"type": "input_video", "file_id": file_id},
+        {"type": "input_text", "text": prompt},
+    ]}],
 )
 text = resp.output_text if hasattr(resp, "output_text") else str(resp)
 print(text)
