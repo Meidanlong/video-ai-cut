@@ -6,23 +6,9 @@
 口播类视频默认以第一个出场的人为主角，封面主图应取该主角出镜时段内"形象最佳"的一帧，
 而不是固定抽"最终结果公布点"。
 
-流程：
-  1. 从视频开头(默认 0~12s)抽帧，用量化指标找第一帧"主体显著"的画面 -> 主角，appearance_start
-  2. appearance_end 默认取 --lead-end 上限（原视频 0~64s 是紧凑决策第一段完整保留的口播段）；
-     加 --auto-end 时改为按"与出场帧相似度连续跌破阈值"判定主角离场
-  3. 输出 out_video_understand/lead_result.json: lead_name / appearance_start /
-     appearance_end / evidence
-
-指标说明（无 cv2 时的 fallback）：
-  清晰度  = PIL ImageFilter.FIND_EDGES（核即拉普拉斯核）的方差，近似拉普拉斯方差
-  主体能量= 中央区域高频能量 / 全图高频能量，衡量"人物是否占画面主体"
-  曝光    = |中央区域平均亮度 - 128| 越小越好
-  人脸占比= 仅在 cv2 + haarcascade 可用时计算（最大人脸框面积 / 全图面积）
-
 用法:
   python identify_lead.py <视频> [--start 0] [--scan-end 12] [--lead-end 64]
                           [--step 0.5] [--name 主角名] [--auto-end]
-                          [--out lead_result.json]
 """
 import argparse
 import json

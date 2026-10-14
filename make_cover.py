@@ -3,6 +3,7 @@
 """
 短视频封面海报生成：真帧主图 + 渐变遮罩 + 大字标题 + 可选 AI 装饰。
 输出 3:4 (1080x1440) 和/或 9:16 (1080x1920) 封面。
+默认在主角出镜时段内按量化指标选"形象最佳"帧（--lead），支持 --frame 手动兜底。
 """
 import argparse
 import json
@@ -79,7 +80,6 @@ def pick_cover_time(video: str = None, plan=None) -> float:
         dur = probe_duration(video)
         if dur > 0 and t >= dur:
             clamped = max(0.0, dur - 0.5)
-            print(f"[frame] 旧逻辑时间 {t:.2f}s 超出视频时长 {dur:.2f}s，夹紧到 {clamped:.2f}s")
             t = clamped
     return t
 
@@ -223,12 +223,10 @@ def main():
         frame_png, lead_info = pick_lead_frame(args.video, args.lead_result, args.step)
         if frame_png is None:
             t = pick_cover_time(args.video)
-            print(f"主角选帧不可用，回退旧逻辑，选帧时间(原视频): {t:.2f}s")
         else:
             t = lead_info["time"]
     else:
         t = pick_cover_time(args.video)
-        print(f"选帧时间(原视频): {t:.2f}s  [来源: --no-lead 旧逻辑/情绪高潮帧]")
     with tempfile.TemporaryDirectory() as tmp:
         if lead_info is not None:
             frame = frame_png
