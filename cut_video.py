@@ -2,16 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 按豆包的剪辑决策点自动裁剪成片（优化版）。
-
-优化点：
-  1. 场景切点吸附：把保留段边界吸附到最近的镜头切点(Scene Cut Detection)，
-     避免切进画面中间，拼接更自然。
-  2. 音频平滑：每段接缝处加短 afade in/out，消除删除段后的爆音。
-  3. 静默检测(可选 --silence)：用 ffmpeg silencedetect 找出静默段并入删除区间。
-
-用法:
-  python cut_video.py <原视频> [输出] [--plan 决策单]
-  python cut_video.py 素材.mp4 成片.mp4 --silence
+优化点：场景切点吸附 / 音频平滑 afade / 静默检测(可选)。
 """
 import argparse
 import json
@@ -48,7 +39,6 @@ def get_duration(video: str) -> float:
 
 
 def detect_scene_cuts(video: str, threshold: float = 0.30) -> list:
-    """用 ffmpeg 的 scene 滤镜检测镜头切点，返回切点时间(秒)列表(不含0)。"""
     cmd = [FFMPEG, "-i", video,
            "-vf", f"select='gt(scene,{threshold})',showinfo",
            "-an", "-f", "null", "-"]
@@ -58,7 +48,6 @@ def detect_scene_cuts(video: str, threshold: float = 0.30) -> list:
 
 
 def snap(boundary: float, cuts: list, window: float = 1.5) -> float:
-    """把边界吸附到最近切点；若距离超过 window 则不吸附，返回原值。"""
     best, best_d = boundary, window
     for c in cuts:
         d = abs(c - boundary)
@@ -68,7 +57,6 @@ def snap(boundary: float, cuts: list, window: float = 1.5) -> float:
 
 
 def detect_silences(video: str, noise_db: float = -30, min_dur: float = 0.6) -> list:
-    """用 silencedetect 找出静默段，返回 [(start, end)]。"""
     cmd = [FFMPEG, "-i", video,
            "-af", f"silencedetect=noise={noise_db}dB:d={min_dur}",
            "-f", "null", "-"]
@@ -79,7 +67,6 @@ def detect_silences(video: str, noise_db: float = -30, min_dur: float = 0.6) -> 
 
 
 def subtract_ranges(duration: float, delete_ranges) -> list:
-    """从完整时长中减去删除区间，得到保留片段列表 [(start, end)]。"""
     keeps = [(0.0, duration)]
     for d_start, d_end in sorted(delete_ranges):
         new_keeps = []
@@ -107,12 +94,11 @@ def main():
     ap = argparse.ArgumentParser(description="按剪辑决策单自动裁剪成片(优化版)")
     ap.add_argument("video", help="原视频路径")
     ap.add_argument("output", nargs="?", help="输出路径")
-    ap.add_argument("--plan", default=str(BASE / "out_video_understand" / "compact_result.json"),
-                    help="剪辑决策单 JSON 路径")
-    ap.add_argument("--scene-threshold", type=float, default=0.30, help="场景切点检测阈值")
-    ap.add_argument("--snap-window", type=float, default=1.5, help="边界吸附窗口(秒)")
+    ap.add_argument("--plan", default=str(BASE / "out_video_understand" / "compact_result.json"))
+    ap.add_argument("--scene-threshold", type=float, default=0.30)
+    ap.add_argument("--snap-window", type=float, default=1.5)
     ap.add_argument("--silence", action="store_true", help="启用静默段检测并删除")
-    ap.add_argument("--no-fade", action="store_true", help="关闭音频淡入淡出")
+    ap.add_argument("--no-fade", action="store_true")
     args = ap.parse_args()
 
     video = args.video
@@ -123,7 +109,6 @@ def main():
 
     delete_ranges = load_delete_ranges(plan_path)
     print(f"使用剪辑决策单: {plan_path}")
-
     if args.silence:
         sils = detect_silences(video)
         if sils:
@@ -133,7 +118,6 @@ def main():
     duration = get_duration(video)
     keeps = subtract_ranges(duration, delete_ranges)
     print(f"视频总长 {duration:.1f}s")
-    print(f"删除区间: {delete_ranges}")
 
     if args.snap_window > 0:
         cuts = detect_scene_cuts(video, args.scene_threshold)
@@ -154,20 +138,16 @@ def main():
         parts.append(f"[0:v]trim=start={s}:end={e},setpts=PTS-STARTPTS[v{i}]")
         if fade_audio and dur > 0.3:
             fade_out_st = max(0.0, dur - 0.06)
-            parts.append(
-                f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS,"
-                f"afade=t=in:d=0.05,afade=t=out:st={fade_out_st:.3f}:d=0.05[a{i}]"
-            )
+            parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS,"
+                         f"afade=t=in:d=0.05,afade=t=out:st={fade_out_st:.3f}:d=0.05[a{i}]")
         else:
             parts.append(f"[0:a]atrim=start={s}:end={e},asetpts=PTS-STARTPTS[a{i}]")
         filters.append(f"[v{i}][a{i}]")
     fc = ";".join(parts) + ";" + "".join(filters) + f"concat=n={n}:v=1:a=1[outv][outa]"
-
     cmd = [FFMPEG, "-y", "-i", video, "-filter_complex", fc,
            "-map", "[outv]", "-map", "[outa]",
            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-           "-c:a", "aac", "-b:a", "192k",
-           "-movflags", "+faststart", out_path]
+           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out_path]
     print("运行 ffmpeg ...")
     subprocess.run(cmd, check=True)
     print(f"成片已生成: {out_path}")

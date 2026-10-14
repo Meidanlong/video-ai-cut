@@ -3,18 +3,6 @@
 """
 短视频封面海报生成：真帧主图 + 渐变遮罩 + 大字标题 + 可选 AI 装饰。
 输出 3:4 (1080x1440) 和/或 9:16 (1080x1920) 封面。
-
-流程：
-  1. 选主图帧：默认从主角出镜时段内按量化指标选"形象最佳"的一帧（--lead，默认启用）
-                [旧逻辑] 情绪高潮帧（最终结果公布点）
-                [兜底] --frame 秒 手动指定
-  2. PIL 排版：真帧铺底 -> 底部渐变遮罩 -> 标题大字(自定义字体) + 副标题/角标
-
-用法:
-  python make_cover.py <原视频> [--title 标题] [--subtitle 副标题]
-       [--lead | --no-lead] [--lead-result lead_result.json]
-       [--frame 秒] [--size both|34|916] [--fontname 字体] [--fontsize 字号]
-       [--out 输出前缀]
 """
 import argparse
 import json
@@ -80,7 +68,6 @@ def probe_duration(video: str) -> float:
 
 
 def pick_cover_time(video: str = None, plan=None) -> float:
-    """旧逻辑：选情绪高潮帧（最终结果公布点），按视频总时长夹紧。"""
     t = None
     try:
         ems = json.loads((BASE / "out_video_understand" / "emotions_result.json").read_text(encoding="utf-8"))
@@ -98,9 +85,6 @@ def pick_cover_time(video: str = None, plan=None) -> float:
 
 
 def pick_lead_frame(video: str, lead_result: str, step: float):
-    """在主角出镜时段内选'形象最佳'的一帧。打分信号：
-    锚定相似度 0.44 / 清晰度 0.24 / 构图居中 0.14 / 曝光 0.12 / 人脸占比 0.06。
-    人脸检测优先 cv2+haarcascade；无 cv2 时锚定相似度承担主要'是不是主角正脸'判断。"""
     try:
         import identify_lead as il
     except ImportError:

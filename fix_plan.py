@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 字幕保护：修正剪辑决策单，任何有语音(字幕)的说话段绝不删除，只删无言停顿。
-用法: python fix_plan.py <决策单.json> <字幕.srt>
-会备份原决策单为 <决策单>.bak.json，并把受保护后的删除区间写回。
 """
 import json
 import re
@@ -72,20 +70,16 @@ def main():
     srt_path = Path(sys.argv[2])
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     speech = srt_segments(srt_path.read_text(encoding="utf-8"))
-
     old = plan["deletes"]
     del_ranges = [(ts2sec(p["start"]), ts2sec(p["end"])) for p in old]
     protected = protect(del_ranges, speech)
     plan["deletes"] = [{"start": sec2ts(s), "end": sec2ts(e),
                         "reason": "无言停顿(经字幕保护)"} for s, e in protected]
-
     bak = plan_path.with_suffix(plan_path.suffix + ".bak.json")
     shutil.copy(plan_path, bak)
     plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"原删除区间: {len(old)} 段")
     print(f"受保护后  : {len(protected)} 段（说话段已保留）")
-    for s, e in protected:
-        print(f"  删 [{s:.1f}-{e:.1f}]  ({e-s:.1f}s)")
     print(f"备份: {bak}")
 
 
