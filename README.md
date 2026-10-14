@@ -26,6 +26,12 @@
 | `srt_to_ass.py` | SRT → 带设计样式的 ASS 字幕（自定义字体/字号/颜色/描边），支持超宽折行、左右安全边距 |
 | `cut_video.py` | 按剪辑决策单裁剪成片（优化版：场景切点吸附 + 音频 afade 平滑 + 可选静默检测） |
 | `final_cut.py` | **成品合成**：字幕烧录 + 降噪(afftdn) + 按决策单裁剪 + BGM 混音，一步出片 |
+| `identify_lead.py` | **主角识别**：从视频开头抽帧，判定"第一个正面出镜、占画面主体"的人物为主角，输出其出镜时段 |
+| `make_cover.py` | **封面海报生成**：默认在主角出镜时段内按量化指标（正脸相似度/清晰度/构图/曝光）选"形象最佳"帧做封面主图；支持 `--no-lead` 旧逻辑与 `--frame` 手动兜底 |
+| `understand_emotions.py` | 理解层情绪点标注：把角色标注映射为"结果公布/关键动作"情绪点，供封面选帧、贴图、音效定位 |
+| `add_overlays.py` | 贴图叠加：按情绪点在成片合适位置叠加文字气泡/自定义 PNG |
+| `add_sfx.py` | 音效叠加：按情绪点在成片合适时间混入音效（内置合成/自定义） |
+| `produce_video.py` | 一键成片（情绪点→基础成片→封面→贴图→音效五步演示版） |
 | `video_ai_cut_pipeline.py` | 本地 ffmpeg+ASR → 豆包决策的完整管线骨架（备用） |
 
 ## 理解层分层剪辑（推荐流程）
@@ -53,6 +59,22 @@
 
 **核心原则**：紧凑是要素，但优先级低于「重要环节（结果/高光）必须完整」；反过来，重要环节内部的拖沓（查规则、无效重复、废镜头）照样删。
 
+## 主角与封面选帧
+
+**规则**：口播类视频默认以**第一个正面出镜、占画面主体的人**为主角；封面主图取该主角出镜时段内"形象最佳"的一帧，而不是固定抽"最终结果公布点"。
+
+```bash
+# 1. 识别主角及其出镜时段（输出 out_video_understand/lead_result.json）
+python identify_lead.py 你的视频.mp4
+
+# 2. 生成封面（默认 --lead 启用主角选帧，在主角时段内量化打分选帧）
+python make_cover.py 你的视频.mp4 --title "标题" --subtitle "副标题"
+```
+
+- 主角时段默认取 `[开头第一帧, 64s]`（与紧凑决策第一保留段一致）；可加 `--auto-end` 按画面相似度自动判离场。
+- 选帧量化指标：锚定相似度（与主角出场帧比对）0.44 / 清晰度 0.24 / 构图居中 0.14 / 曝光 0.12 / 人脸占比 0.06（装 `opencv-python` 后自动启用真实人脸检测，未装时用相似度近似）。
+- 兜底：`--frame 秒` 手动指定；`--no-lead` 回退旧逻辑（情绪高潮帧）。
+
 ## 专有名词澄清（重要）
 
 人名、地名、景观、美食等**特殊指向专有名词**必须准确，不能将错就错。ASR 转写可能写错人名（如「韩欣彤」误作「韩雨桐」）。**流程中凡涉及专有名词，若不确定应先向用户澄清，确认正确写法后再落字幕。**
@@ -67,11 +89,13 @@ pip install openai imageio-ffmpeg
 export ARK_API_KEY="你的火山方舟API Key"
 # 或复制 .env.example 为 .env 并填写（脚本会自动读取）
 
-# 3a. 理解层角色标注（结合 ASR 字幕，需先转写）
+# 3a. 识别视频内容（生成剪辑决策单）
+python run_video_understand.py 你的视频.mp4 "去口误,去静默,保留高光段"
+
+# 3b. 转写字幕（生成 SRT）
 python audio_to_srt.py 音轨.mp3 out_video_understand/transcript.srt
-python understand_roles.py <file_id>
-python roles_to_plan.py
-python check_cut.py out_video_understand/compact_result.json out_video_understand/transcript.srt
+
+# 3c. 准备免版权 BGM（如 free-stock-music 的 CC BY 曲目，放到项目目录 bgm.mp3）
 
 # 4. 一键合成短视频成品（降噪 + 裁剪 + BGM + 字幕）
 python final_cut.py 你的视频.mp4 成片_成品版.mp4
@@ -109,9 +133,11 @@ python cut_video.py 你的视频.mp4 成片_紧凑版.mp4
 - `out_video_understand/understand_result.json` —— 内容概述 + 剪辑决策点
 - `out_video_understand/compact_result.json` —— 分层剪辑决策单（删除段 + 保留段）
 - `out_video_understand/roles_result.json` —— 角色标注结果（逐段角色）
+- `out_video_understand/lead_result.json` —— 主角识别结果（主角名 + 出镜时段 + 判定依据）
 - `out_video_understand/transcript.srt` —— 语音转写字幕
 - `*.ass` —— 设计样式的字幕（最终烧录进视频）
 - 成片 `.mp4` —— 自动裁剪 + 降噪 + BGM + 字幕的短视频成品
+- `封面海报_*.png` —— 封面海报（主角选帧版）
 
 ## 安全
 
