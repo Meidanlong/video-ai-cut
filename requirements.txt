@@ -4,3 +4,7 @@ imageio-ffmpeg>=0.5
 
 # 可选：更可靠的"正脸"检测（装后可自动启用 haarcascade 人脸检测）
 # opencv-python
+
+# 本地 ASR（骨架管线备选，二选一）
+# openai-whisper
+# faster-whisper  # Python 3.14+ 建议用这个
